@@ -503,6 +503,7 @@ def get_course_assignment_date_blocks(course, user, request, num_return=None,
         date_block.contains_gated_content = assignment.contains_gated_content
         date_block.complete = assignment.complete
         date_block.past_due = assignment.past_due
+        date_block.link = assignment.url
         date_block.set_title(assignment.title, link=assignment.url)
         date_blocks.append(date_block)
     date_blocks = sorted((b for b in date_blocks if b.is_enabled or include_past_dates), key=date_block_key_fn)
@@ -533,7 +534,7 @@ def get_course_assignments(course_key, user, request, include_access=False):
             contains_gated_content = include_access and subsection.get('contains_gated_content', False)
             title = subsection.get('display_name', _('Assignment'))
 
-            url = None
+            url = ''
             assignment_released = not subsection.get('start') or subsection.get('start') < now
             if assignment_released:
                 url = subsection.get('lms_web_url')

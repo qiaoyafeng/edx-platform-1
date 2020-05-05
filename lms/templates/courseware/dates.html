@@ -26,7 +26,7 @@ from openedx.core.djangolib.markup import HTML, Text
                 <h2 class="hd hd-2 date-title">
                     ${_("Important Dates")}
                 </h2>
-                <% has_locked_assignments = any(hasattr(block, 'contains_gated_content') and block.contains_gated_content for block in course_date_blocks if isinstance(block, CourseAssignmentDate)) %>
+                <% has_locked_assignments = any(hasattr(block, 'contains_gated_content') and block.contains_gated_content for block in course_date_blocks) %>
                 % if has_locked_assignments and verified_upgrade_link:
                     <div class="upgrade-banner">
                         <div class="upgrade-banner-text">
