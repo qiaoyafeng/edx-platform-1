@@ -469,9 +469,10 @@ class CourseNextSectionUpdate(PrefixedDebugLoggerMixin, RecipientResolver):
             enrollment = schedule.enrollment
             course = schedule.enrollment.course
             user = enrollment.user
+            start_date = schedule.start_date
 
             try:
-                week_highlights, week_num = get_next_section_highlights(user, course.id, target_date)
+                week_highlights, week_num = get_next_section_highlights(user, course.id, start_date, target_date)
             except CourseUpdateDoesNotExist:
                 LOG.warning(
                     u'Weekly highlights for user {} of course {} does not exist or is disabled'.format(
