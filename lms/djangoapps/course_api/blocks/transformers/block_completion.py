@@ -16,6 +16,8 @@ class BlockCompletionTransformer(BlockStructureTransformer):
     READ_VERSION = 1
     WRITE_VERSION = 1
     COMPLETION = 'completion'
+    COMPLETE = 'complete'
+    RESUME_BLOCK = 'resume_block'
 
     @classmethod
     def name(cls):
@@ -43,9 +45,56 @@ class BlockCompletionTransformer(BlockStructureTransformer):
     def collect(cls, block_structure):
         block_structure.request_xblock_fields('completion_mode')
 
+    def recurse_mark_complete(self, course_block_completions, latest_completion_block_key, block_key, block_structure):
+        """
+        Helper function to walk course tree dict, marking blocks as 'complete' as dictated by
+        course_block_completions (for problems) or all of a block's children being complete.
+
+        :param course_block_completions: dict[course_completion_object] =  completion_value
+        :param latest_completion_block_key: block key for the latest completed block.
+        :param block_key: A opaque_keys.edx.locator.BlockUsageLocator object
+        :param block_structure: A BlockStructureBlockData object
+        """
+        # Early exit. If complete has already been set on a block, then we can assume all of its
+        # children have also been looked at so no need to continue.
+        if block_structure.get_xblock_field(block_key, self.COMPLETE):
+            return
+
+        if block_key in course_block_completions:
+            block_structure.override_xblock_field(block_key, self.COMPLETE, True)
+            if block_key == latest_completion_block_key:
+                block_structure.override_xblock_field(block_key, self.RESUME_BLOCK, True)
+
+        completable_blocks = []
+        for child_key in block_structure.get_children(block_key):
+            self.recurse_mark_complete(
+                course_block_completions,
+                latest_completion_block_key,
+                child_key,
+                block_structure,
+            )
+            if block_structure.get_xblock_field(child_key, self.RESUME_BLOCK):
+                block_structure.override_xblock_field(child_key, self.RESUME_BLOCK, True)
+            if block_structure.get_xblock_field(child_key, 'category') != 'discussion':
+                completable_blocks.append(child_key)
+
+        if (completable_blocks and
+                all(block_structure.get_xblock_field(child_key, self.COMPLETE) for child_key in completable_blocks)):
+            block_structure.override_xblock_field(block_key, self.COMPLETE, True)
+
     def transform(self, usage_info, block_structure):
         """
-        Mutates block_structure adding extra field which contains block's completion.
+        Mutates block_structure adding three extra fields which contains block's completion,
+        complete status, and if the block is a resume_block, indicating it is the most recently
+        completed block.
+
+        IMPORTANT!: There is a subtle, but important difference between 'completion' and 'complete'
+        which are both set in this transformer:
+        'completion': Returns a percentile (0.0 - 1.0) of correctness for a _problem_. This field will
+            be None for all other blocks that are not leaves and captured in BlockCompletion.
+        'complete': Returns a boolean indicating whether the block is complete. For problems, this will
+            be taken from a BlockCompletion entry existing. For all other blocks, it will be marked True
+            if all of the children of the block are all marked complete (this is calculated recursively)
         """
         def _is_block_an_aggregator_or_excluded(block_key):
             """
@@ -61,15 +110,8 @@ class BlockCompletionTransformer(BlockStructureTransformer):
         completions = BlockCompletion.objects.filter(
             user=usage_info.user,
             context_key=usage_info.course_key,
-        ).values_list(
-            'block_key',
-            'completion',
         )
-
-        completions_dict = {
-            block.map_into_course(usage_info.course_key): completion
-            for block, completion in completions
-        }
+        completions_dict = BlockCompletion.completion_by_block_key(completions)
 
         for block_key in block_structure.topological_traversal():
             if _is_block_an_aggregator_or_excluded(block_key):
@@ -81,4 +123,10 @@ class BlockCompletionTransformer(BlockStructureTransformer):
 
             block_structure.set_transformer_block_field(
                 block_key, self, self.COMPLETION, completion_value
+            )
+
+        latest_completion = completions.latest() if completions.exists() else None
+        if latest_completion:
+            self.recurse_mark_complete(
+                completions_dict, latest_completion.block_key, block_structure.root_block_usage_key, block_structure
             )
